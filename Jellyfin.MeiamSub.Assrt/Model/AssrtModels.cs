@@ -32,7 +32,7 @@ namespace Jellyfin.MeiamSub.Assrt.Model
         [JsonPropertyName("id")]
         public object Id { get; set; } // 可以是数字也可以是字符串，用 object 接收再 ToString()
 
-        [JsonPropertyName("name")]
+        [JsonPropertyName("native_name")]
         public string Name { get; set; }
 
         [JsonPropertyName("videoname")]
@@ -82,6 +82,7 @@ namespace Jellyfin.MeiamSub.Assrt.Model
 
         [JsonPropertyName("url")]
         public string Url { get; set; }
+
     }
 
     /// <summary>

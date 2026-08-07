@@ -6,7 +6,6 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -14,6 +13,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using SharpCompress.Archives;
 
 namespace Jellyfin.MeiamSub.Assrt
 {
@@ -154,7 +154,7 @@ namespace Jellyfin.MeiamSub.Assrt
                     remoteSubtitles.Add(new RemoteSubtitleInfo
                     {
                         Id = encodedId,
-                        Name = $"[MEIAMSUB] {item.Name} | {langDesc} | 伪射手",
+                        Name = $"[MEIAMSUB] {item.Name ?? item.VideoName ?? subtitleId} | {langDesc} | 伪射手",
                         Author = "Assrt",
                         ProviderName = Name,
                         Format = format,
@@ -209,6 +209,12 @@ namespace Jellyfin.MeiamSub.Assrt
                 var detailJson = await detailResponseMsg.Content.ReadAsStringAsync(cancellationToken);
                 var detailResponse = JsonSerializer.Deserialize<AssrtDetailResponse>(detailJson);
 
+                if (detailResponse == null || detailResponse.Status != 0)
+                {
+                    _logger.LogError($"{Name} GetSubtitles | Detail API error. Status: {detailResponse?.Status}, Response: {detailJson}");
+                    throw new InvalidOperationException($"{Name} GetSubtitles | Assrt API returned error status: {detailResponse?.Status}");
+                }
+
                 var targetSub = detailResponse?.Sub?.Subs?.FirstOrDefault();
                 if (targetSub == null || string.IsNullOrEmpty(targetSub.Url))
                 {
@@ -216,13 +222,16 @@ namespace Jellyfin.MeiamSub.Assrt
                     throw new InvalidOperationException($"{Name} GetSubtitles | API 响应中未找到字幕下载地址。");
                 }
 
-                _logger.LogInformation($"{Name} GetSubtitles | Downloading subtitle from: {targetSub.Url}");
+                var downloadUrl = targetSub.Url;
+                var downloadFilename = targetSub.Filename;
+
+                _logger.LogInformation($"{Name} GetSubtitles | Downloading subtitle from: {downloadUrl}");
 
                 // 2. 下载字幕流 (手动接管重定向以确保每次重定向请求均带有正确的防盗链 Headers)
                 var handler = new HttpClientHandler { AllowAutoRedirect = false };
                 using var cleanHttpClient = new HttpClient(handler);
                 
-                var currentUrl = targetSub.Url;
+                var currentUrl = downloadUrl;
 
                 HttpResponseMessage downloadResponse = null;
                 int redirectCount = 0;
@@ -269,47 +278,32 @@ namespace Jellyfin.MeiamSub.Assrt
 
                 var responseStream = await downloadResponse.Content.ReadAsStreamAsync(cancellationToken);
 
-                // 3. 防御性处理：检查是否为 ZIP 压缩包
-                // 如果是 ZIP，解压出里面第一个符合格式要求的字幕流
+                // 3. 下载原始文件；若为压缩包，则从 ZIP/RAR/7z/TAR 等归档中提取字幕。
                 var memoryStream = new MemoryStream();
                 await responseStream.CopyToAsync(memoryStream, cancellationToken);
                 memoryStream.Position = 0;
 
-                // 判断 ZIP 标志 (PK.. / 0x50 0x4B)
-                bool isZip = false;
-                if (memoryStream.Length > 4)
+                var directFormat = ExtractFormat(downloadFilename);
+                if (directFormat == null)
                 {
-                    byte[] zipHeader = new byte[4];
-                    await memoryStream.ReadExactlyAsync(zipHeader, 0, 4, cancellationToken);
-                    if (zipHeader[0] == 0x50 && zipHeader[1] == 0x4B && zipHeader[2] == 0x03 && zipHeader[3] == 0x04)
-                    {
-                        isZip = true;
-                    }
-                    memoryStream.Position = 0;
-                }
-
-                if (isZip || targetSub.Filename?.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) == true)
-                {
-                    _logger.LogInformation($"{Name} GetSubtitles | ZIP file detected, extracting...");
+                    _logger.LogInformation($"{Name} GetSubtitles | Archive detected, extracting: {downloadFilename}");
                     try
                     {
-                        using var archive = new ZipArchive(memoryStream, ZipArchiveMode.Read, true);
+                        using var archive = ArchiveFactory.OpenArchive(memoryStream);
                         var entry = archive.Entries.FirstOrDefault(e =>
-                            e.FullName.EndsWith(".srt", StringComparison.OrdinalIgnoreCase) ||
-                            e.FullName.EndsWith(".ass", StringComparison.OrdinalIgnoreCase) ||
-                            e.FullName.EndsWith(".ssa", StringComparison.OrdinalIgnoreCase));
+                            !e.IsDirectory && ExtractFormat(e.Key) != null);
 
                         if (entry != null)
                         {
                             var extractedStream = new MemoryStream();
-                            using (var entryStream = entry.Open())
+                            using (var entryStream = entry.OpenEntryStream())
                             {
                                 await entryStream.CopyToAsync(extractedStream, cancellationToken);
                             }
                             extractedStream.Position = 0;
-                            var extFormat = ExtractFormat(entry.FullName) ?? downloadInfo.Format;
+                            var extFormat = ExtractFormat(entry.Key) ?? downloadInfo.Format;
 
-                            _logger.LogInformation($"{Name} GetSubtitles | Extracted file: '{entry.FullName}' with format: {extFormat}");
+                            _logger.LogInformation($"{Name} GetSubtitles | Extracted file: '{entry.Key}' with format: {extFormat}");
 
                             return new SubtitleResponse
                             {
@@ -321,22 +315,23 @@ namespace Jellyfin.MeiamSub.Assrt
                         }
                         else
                         {
-                            _logger.LogWarning($"{Name} GetSubtitles | No srt/ass/ssa file found inside the ZIP package.");
+                            throw new InvalidOperationException($"{Name} GetSubtitles | Archive contains no supported srt/ass/ssa subtitle.");
                         }
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, $"{Name} GetSubtitles | Failed to extract ZIP archive: {ex.Message}");
+                        _logger.LogError(ex, $"{Name} GetSubtitles | Failed to extract archive '{downloadFilename}': {ex.Message}");
+                        throw;
                     }
                 }
 
-                // 4. 不是 ZIP 或者解压失败时，默认返回原流
+                // 4. 非压缩的字幕文件直接返回。
                 memoryStream.Position = 0;
                 return new SubtitleResponse
                 {
                     Language = downloadInfo.Language,
                     IsForced = false,
-                    Format = downloadInfo.Format,
+                    Format = directFormat ?? downloadInfo.Format,
                     Stream = memoryStream
                 };
             }

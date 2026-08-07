@@ -18,7 +18,7 @@ namespace Emby.MeiamSub.Assrt.Model
     public class AssrtSearchItem
     {
         public object id { get; set; }
-        public string name { get; set; }
+        public string native_name { get; set; }
         public string videoname { get; set; }
         public string subtype { get; set; }
         public AssrtLanguageInfo lang { get; set; }

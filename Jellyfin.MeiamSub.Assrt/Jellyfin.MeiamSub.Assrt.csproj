@@ -14,6 +14,7 @@
 
   <ItemGroup>
     <PackageReference Include="Jellyfin.Controller" Version="10.11.11" />
+    <PackageReference Include="SharpCompress" Version="0.50.1" GeneratePathProperty="true" />
   </ItemGroup>
 
   <ItemGroup>
@@ -28,6 +29,7 @@
 
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
     <Copy SourceFiles="$(TargetDir)$(TargetFileName)" DestinationFolder="$(SolutionDir)$(ConfigurationName)\" SkipUnchangedFiles="false" />
+    <Copy SourceFiles="$(PkgSharpCompress)\lib\net8.0\SharpCompress.dll" DestinationFolder="$(SolutionDir)$(ConfigurationName)\dependencies\Jellyfin\" SkipUnchangedFiles="true" />
   </Target>
 
 </Project>

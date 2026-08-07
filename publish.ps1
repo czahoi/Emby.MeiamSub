@@ -130,6 +130,7 @@ Copy-Item Jellyfin.MeiamSub.Thunder\thumb.png $JellyfinThunderPackDir\
 
 # Copy Jellyfin Assrt artifacts
 Copy-Item Release\Jellyfin.MeiamSub.Assrt.dll $JellyfinAssrtPackDir\
+Copy-Item Release\dependencies\Jellyfin\* $JellyfinAssrtPackDir\
 Copy-Item Jellyfin.MeiamSub.Assrt\meta.json $JellyfinAssrtPackDir\
 Copy-Item Jellyfin.MeiamSub.Assrt\thumb.png $JellyfinAssrtPackDir\
 

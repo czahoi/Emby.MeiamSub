@@ -8,12 +8,12 @@ using MediaBrowser.Model.Serialization;
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using SharpCompress.Archives;
 using System.Net.Http;
 
 namespace Emby.MeiamSub.Assrt
@@ -147,7 +147,7 @@ namespace Emby.MeiamSub.Assrt
                     if (item.id == null) continue;
 
                     var subtitleId = item.id.ToString();
-                    var format = ExtractFormat(item.subtype) ?? ExtractFormat(item.name) ?? SRT;
+                    var format = ExtractFormat(item.subtype) ?? ExtractFormat(item.native_name) ?? SRT;
 
                     var langDesc = item.lang?.desc ?? "中文";
 
@@ -163,7 +163,7 @@ namespace Emby.MeiamSub.Assrt
                     remoteSubtitles.Add(new RemoteSubtitleInfo
                     {
                         Id = encodedId,
-                        Name = $"[MEIAMSUB] {item.name} | {langDesc} | 伪射手",
+                        Name = $"[MEIAMSUB] {item.native_name ?? item.videoname ?? subtitleId} | {langDesc} | 伪射手",
                         Author = "Assrt",
                         ProviderName = Name,
                         Format = format,
@@ -230,6 +230,12 @@ namespace Emby.MeiamSub.Assrt
 
                 var detailResponse = _jsonSerializer.DeserializeFromString<AssrtDetailResponse>(detailJson);
 
+                if (detailResponse == null || detailResponse.status != 0)
+                {
+                    _logger.Error($"{Name} GetSubtitles | Detail API error. Status: {detailResponse?.status}, Response: {detailJson}");
+                    return new SubtitleResponse { Language = downloadInfo.Language, Format = downloadInfo.Format, Stream = new MemoryStream() };
+                }
+
                 var targetSub = detailResponse?.sub?.subs?.FirstOrDefault();
                 if (targetSub == null || string.IsNullOrEmpty(targetSub.url))
                 {
@@ -237,13 +243,16 @@ namespace Emby.MeiamSub.Assrt
                     return new SubtitleResponse { Language = downloadInfo.Language, Format = downloadInfo.Format, Stream = new MemoryStream() };
                 }
 
-                _logger.Info($"{Name} GetSubtitles | Downloading subtitle from: {targetSub.url}");
+                var downloadUrl = targetSub.url;
+                var downloadFilename = targetSub.filename;
+
+                _logger.Info($"{Name} GetSubtitles | Downloading subtitle from: {downloadUrl}");
 
                 // 2. 下载字幕流 (手动接管重定向以确保每次重定向请求均带有正确的防盗链 Headers)
                 var handler = new HttpClientHandler { AllowAutoRedirect = false };
                 using var cleanHttpClient = new HttpClient(handler);
                 
-                var currentUrl = targetSub.url;
+                var currentUrl = downloadUrl;
                 HttpResponseMessage downloadResponse = null;
                 int redirectCount = 0;
 
@@ -288,46 +297,33 @@ namespace Emby.MeiamSub.Assrt
 
                 var responseStream = await downloadResponse.Content.ReadAsStreamAsync();
 
-                // 3. 防御性处理：检查是否为 ZIP 压缩包并提取
+                // 3. 下载原始文件；若为压缩包，则从 ZIP/RAR/7z/TAR 等归档中提取字幕。
                 var memoryStream = new MemoryStream();
                 await responseStream.CopyToAsync(memoryStream);
                 memoryStream.Position = 0;
 
-                bool isZip = false;
-                if (memoryStream.Length > 4)
+                var directFormat = ExtractFormat(downloadFilename);
+                if (directFormat == null)
                 {
-                    byte[] zipHeader = new byte[4];
-                    memoryStream.Read(zipHeader, 0, 4);
-                    if (zipHeader[0] == 0x50 && zipHeader[1] == 0x4B && zipHeader[2] == 0x03 && zipHeader[3] == 0x04)
-                    {
-                        isZip = true;
-                    }
-                    memoryStream.Position = 0;
-                }
-
-                if (isZip || targetSub.filename?.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) == true)
-                {
-                    _logger.Info($"{Name} GetSubtitles | ZIP file detected, extracting...");
+                    _logger.Info($"{Name} GetSubtitles | Archive detected, extracting: {downloadFilename}");
                     try
                     {
-                        using (var archive = new ZipArchive(memoryStream, ZipArchiveMode.Read, true))
+                        using (var archive = ArchiveFactory.Open(memoryStream))
                         {
                             var entry = archive.Entries.FirstOrDefault(e =>
-                                e.FullName.EndsWith(".srt", StringComparison.OrdinalIgnoreCase) ||
-                                e.FullName.EndsWith(".ass", StringComparison.OrdinalIgnoreCase) ||
-                                e.FullName.EndsWith(".ssa", StringComparison.OrdinalIgnoreCase));
+                                !e.IsDirectory && ExtractFormat(e.Key) != null);
 
                             if (entry != null)
                             {
                                 var extractedStream = new MemoryStream();
-                                using (var entryStream = entry.Open())
+                                using (var entryStream = entry.OpenEntryStream())
                                 {
                                     await entryStream.CopyToAsync(extractedStream);
                                 }
                                 extractedStream.Position = 0;
-                                var extFormat = ExtractFormat(entry.FullName) ?? downloadInfo.Format;
+                                var extFormat = ExtractFormat(entry.Key) ?? downloadInfo.Format;
 
-                                _logger.Info($"{Name} GetSubtitles | Extracted file: '{entry.FullName}' with format: {extFormat}");
+                                _logger.Info($"{Name} GetSubtitles | Extracted file: '{entry.Key}' with format: {extFormat}");
 
                                 return new SubtitleResponse
                                 {
@@ -339,23 +335,25 @@ namespace Emby.MeiamSub.Assrt
                             }
                             else
                             {
-                                _logger.Warn($"{Name} GetSubtitles | No srt/ass/ssa file found inside the ZIP package.");
+                                _logger.Warn($"{Name} GetSubtitles | Archive contains no supported srt/ass/ssa subtitle.");
+                                return new SubtitleResponse { Language = downloadInfo.Language, Format = downloadInfo.Format, Stream = new MemoryStream() };
                             }
                         }
                     }
                     catch (Exception ex)
                     {
-                        _logger.Error($"{Name} GetSubtitles | Failed to extract ZIP archive: {ex.Message}");
+                        _logger.Error($"{Name} GetSubtitles | Failed to extract archive '{downloadFilename}': {ex.Message}");
+                        return new SubtitleResponse { Language = downloadInfo.Language, Format = downloadInfo.Format, Stream = new MemoryStream() };
                     }
                 }
 
-                // 4. 不是 ZIP 或者解压失败时，默认返回原流
+                // 4. 非压缩的字幕文件直接返回。
                 memoryStream.Position = 0;
                 return new SubtitleResponse
                 {
                     Language = downloadInfo.Language,
                     IsForced = false,
-                    Format = downloadInfo.Format,
+                    Format = directFormat ?? downloadInfo.Format,
                     Stream = memoryStream
                 };
             }
