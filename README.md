@@ -7,7 +7,6 @@
   <img src="https://img.shields.io/badge/.NET-Standard%202.1%20%7C%209.0-blueviolet.svg" alt=".NET Status">
   <a href="#插件与兼容性"><img src="https://img.shields.io/badge/Platform-Linux%20%7C%20Windows%20%7C%20macOS-brightgreen.svg" alt="Platform"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License"></a>
-  <a href="https://github.com/91270/MeiamSubtitles"><img src="https://img.shields.io/github/stars/91270/MeiamSubtitles?label=Star%20this%20repo" alt="Star"></a>
   <a href="https://www.592.la/"><img src="https://img.shields.io/badge/博客-Meiam's%20Home-brightgreen.svg" alt="博客"></a>
 </p>
 
