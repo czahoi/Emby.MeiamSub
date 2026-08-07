@@ -7,10 +7,6 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Emby.MeiamSub.DevTool", "Em
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Jellyfin.MeiamSub.Thunder", "Jellyfin.MeiamSub.Thunder\Jellyfin.MeiamSub.Thunder.csproj", "{4676AA1B-CC6C-42DC-BD69-6A293BAE8823}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Jellyfin.MeiamSub.Shooter", "Jellyfin.MeiamSub.Shooter\Jellyfin.MeiamSub.Shooter.csproj", "{8F77E155-9A91-4882-82E8-E8D69FECD246}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Emby.MeiamSub.Shooter", "Emby.MeiamSub.Shooter\Emby.MeiamSub.Shooter.csproj", "{F2636BCB-111D-4F22-AA06-8852E96D05C4}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Emby.MeiamSub.Thunder", "Emby.MeiamSub.Thunder\Emby.MeiamSub.Thunder.csproj", "{96F4C65C-11B1-46F4-B343-115168688C2D}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Jellyfin.MeiamSub.Assrt", "Jellyfin.MeiamSub.Assrt\Jellyfin.MeiamSub.Assrt.csproj", "{E693CDAB-8E8C-4D12-BBDF-3FE564CD61F0}"
@@ -31,14 +27,6 @@ Global
 		{4676AA1B-CC6C-42DC-BD69-6A293BAE8823}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{4676AA1B-CC6C-42DC-BD69-6A293BAE8823}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{4676AA1B-CC6C-42DC-BD69-6A293BAE8823}.Release|Any CPU.Build.0 = Release|Any CPU
-		{8F77E155-9A91-4882-82E8-E8D69FECD246}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{8F77E155-9A91-4882-82E8-E8D69FECD246}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{8F77E155-9A91-4882-82E8-E8D69FECD246}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{8F77E155-9A91-4882-82E8-E8D69FECD246}.Release|Any CPU.Build.0 = Release|Any CPU
-		{F2636BCB-111D-4F22-AA06-8852E96D05C4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{F2636BCB-111D-4F22-AA06-8852E96D05C4}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{F2636BCB-111D-4F22-AA06-8852E96D05C4}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{F2636BCB-111D-4F22-AA06-8852E96D05C4}.Release|Any CPU.Build.0 = Release|Any CPU
 		{96F4C65C-11B1-46F4-B343-115168688C2D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{96F4C65C-11B1-46F4-B343-115168688C2D}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{96F4C65C-11B1-46F4-B343-115168688C2D}.Release|Any CPU.ActiveCfg = Release|Any CPU

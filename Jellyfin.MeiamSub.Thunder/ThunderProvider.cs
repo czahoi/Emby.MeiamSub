@@ -68,7 +68,6 @@ namespace Jellyfin.MeiamSub.Thunder
         /// <returns>远程字幕信息列表</returns>
                 public async Task<IEnumerable<RemoteSubtitleInfo>> Search(SubtitleSearchRequest request, CancellationToken cancellationToken)
                 {
-                    _logger.LogInformation("DEBUG: Received Search request for " + (request?.MediaPath ?? "NULL"));
         
                     var subtitles = await SearchSubtitlesAsync(request, cancellationToken);
         
@@ -86,13 +85,11 @@ namespace Jellyfin.MeiamSub.Thunder
             // 修改时间: 2026-02-11
             // 备注: 增加元数据搜索选项，可以以元数据中的系列名和季集信息来作为匹配对象
 
-            _logger.LogInformation("DEBUG: Entering SearchSubtitlesAsync (Thunder)");
-
             try
             {
                 if (request == null)
                 {
-                    _logger.LogInformation("DEBUG: Request is null");
+                    _logger.LogInformation("{Provider} Search | Request is null", Name);
                     return Array.Empty<RemoteSubtitleInfo>();
                 }
 
@@ -154,7 +151,7 @@ namespace Jellyfin.MeiamSub.Thunder
 
                 using var response = await httpClient.SendAsync(options, cancellationToken);
 
-                _logger.LogInformation($"{Name} Search | Response -> {JsonSerializer.Serialize(response)}");
+                _logger.LogInformation("{Provider} Search | Response -> {StatusCode}", Name, response.StatusCode);
 
                 if (response.StatusCode == HttpStatusCode.OK)
                 {
@@ -162,8 +159,6 @@ namespace Jellyfin.MeiamSub.Thunder
 
                     if (subtitleResponse != null)
                     {
-                        _logger.LogInformation($"{Name} Search | Response -> {JsonSerializer.Serialize(subtitleResponse)}");
-
                         var subtitles = (subtitleResponse.Data ?? new List<SublistItem>())
                             .Where(m => !string.IsNullOrWhiteSpace(m.Name) &&
                                 !string.IsNullOrWhiteSpace(m.Url) &&

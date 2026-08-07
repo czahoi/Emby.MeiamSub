@@ -130,7 +130,7 @@ namespace Emby.MeiamSub.Assrt
                     jsonString = await reader.ReadToEndAsync();
                 }
 
-                _logger.Info($"{Name} Search | Response Status -> {response.StatusCode} | ResponseBody -> {jsonString}");
+                _logger.Info("{0} Search | Response -> {1}", Name, response.StatusCode);
 
                 var searchResponse = _jsonSerializer.DeserializeFromString<AssrtSearchResponse>(jsonString);
 

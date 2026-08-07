@@ -134,7 +134,8 @@ namespace Emby.MeiamSub.Shooter
 
                 var response = await _httpClient.Post(options);
 
-                _logger.Info("{0} Search | Response -> {1}", new object[2] { Name, _jsonSerializer.SerializeToString(response) });
+                _logger.Info("{0} Search | Response -> {1} | Content-Type -> {2}",
+                    new object[3] { Name, response.StatusCode, response.ContentType ?? "unknown" });
 
                 if (response.StatusCode == HttpStatusCode.OK && response.ContentType.Contains("application/json"))
                 {
@@ -148,8 +149,6 @@ namespace Emby.MeiamSub.Shooter
                         responseBody = await reader.ReadToEndAsync();
                     }
 
-                    _logger.Info("{0} Search | ResponseBody -> {1}", new object[2] { Name, responseBody });
-
                     if (string.IsNullOrEmpty(responseBody) || !responseBody.Trim().StartsWith("["))
                     {
                         _logger.Info("{0} Search | Summary -> API returned invalid content (likely no subtitles found or API error).", Name);
@@ -160,8 +159,6 @@ namespace Emby.MeiamSub.Shooter
 
                     if (subtitleResponse != null)
                     {
-                        _logger.Info("{0} Search | Response -> {1}", new object[2] { Name, _jsonSerializer.SerializeToString(subtitleResponse) });
-
                         var remoteSubtitles = new List<RemoteSubtitleInfo>();
 
                         foreach (var subFileInfo in subtitleResponse)

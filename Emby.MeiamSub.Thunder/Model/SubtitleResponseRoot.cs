@@ -17,7 +17,7 @@ namespace Emby.MeiamSub.Thunder.Model
         public string Url { get; set; }
         public string Ext { get; set; }
         public string Name { get; set; }
-        public int Duration { get; set; }
+        public long Duration { get; set; }
         public string[] Languages { get; set; }
 
         public string Langs => Languages != null ? string.Join(",", Languages) : string.Empty;

@@ -114,7 +114,7 @@ namespace Jellyfin.MeiamSub.Assrt
                 var response = await httpClient.GetAsync(searchUrl, cancellationToken);
                 var jsonString = await response.Content.ReadAsStringAsync(cancellationToken);
 
-                _logger.LogInformation($"{Name} Search | Response Status -> {response.StatusCode} | ResponseBody -> {jsonString}");
+                _logger.LogInformation("{Provider} Search | Response -> {StatusCode}", Name, response.StatusCode);
 
                 if (!response.IsSuccessStatusCode)
                 {

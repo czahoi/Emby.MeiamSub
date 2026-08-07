@@ -158,7 +158,8 @@ namespace Jellyfin.MeiamSub.Shooter
                 // 发送 POST 请求
                 using var response = await httpClient.PostAsync(ApiUrl, content, cancellationToken);
 
-                _logger.LogInformation($"{Name} Search | Response -> {JsonSerializer.Serialize(response)}");
+                _logger.LogInformation("{Provider} Search | Response -> {StatusCode} | Content-Type -> {ContentType}",
+                    Name, response.StatusCode, response.Content.Headers.ContentType?.MediaType ?? "unknown");
 
                 // 处理响应
 
@@ -169,8 +170,6 @@ namespace Jellyfin.MeiamSub.Shooter
                     var responseBody = await response.Content.ReadAsStringAsync();
 
 
-
-                    _logger.LogInformation($"{Name} Search | ResponseBody -> {responseBody} ");
 
 
 
@@ -199,8 +198,6 @@ namespace Jellyfin.MeiamSub.Shooter
 
 
                     var subtitles = JsonSerializer.Deserialize<List<SubtitleResponseRoot>>(responseBody);
-
-                    _logger.LogInformation($"{Name} Search | Response -> {JsonSerializer.Serialize(subtitles)}");
 
                     if (subtitles != null)
                     {

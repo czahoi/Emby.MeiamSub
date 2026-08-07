@@ -1,13 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <AssemblyVersion>1.0.15.0</AssemblyVersion>
-    <FileVersion>1.0.15.0</FileVersion>
-    <Version>1.0.15.0</Version>
+    <AssemblyVersion>1.0.16.0</AssemblyVersion>
+    <FileVersion>1.0.16.0</FileVersion>
+    <Version>1.0.16.0</Version>
   </PropertyGroup>
 
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
+    <!-- Emby 4.9 provides SharpCompress 0.33.0 at runtime. Upgrading the compile-time
+         reference would make the plugin request an assembly version the host does not provide. -->
+    <NoWarn>$(NoWarn);NU1902</NoWarn>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
@@ -25,7 +28,7 @@
   <ItemGroup>
     <PackageReference Include="MediaBrowser.Common" Version="4.9.1.90" />
     <PackageReference Include="MediaBrowser.Server.Core" Version="4.9.1.90" />
-    <PackageReference Include="SharpCompress" Version="0.33.0" />
+    <PackageReference Include="SharpCompress" Version="0.33.0" ExcludeAssets="runtime" PrivateAssets="all" />
   </ItemGroup>
 
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">

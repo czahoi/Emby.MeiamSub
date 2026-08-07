@@ -146,7 +146,7 @@ namespace Emby.MeiamSub.Thunder
                 };
                 var response = await _httpClient.GetResponse(options);
 
-                _logger.Info("{0} Search | Response -> {1}", new object[2] { Name, _jsonSerializer.SerializeToString(response) });
+                _logger.Info("{0} Search | Response -> {1}", new object[2] { Name, response.StatusCode });
 
                 if (response.StatusCode == HttpStatusCode.OK)
                 {
@@ -154,8 +154,6 @@ namespace Emby.MeiamSub.Thunder
 
                     if (subtitleResponse.Code == 0)
                     {
-                        _logger.Info("{0} Search | Response -> {1}", new object[2] { Name, _jsonSerializer.SerializeToString(subtitleResponse) });
-
                         var subtitles = (subtitleResponse.Data ?? new List<SublistItem>())
                             .Where(m => !string.IsNullOrWhiteSpace(m.Name) &&
                                 !string.IsNullOrWhiteSpace(m.Url) &&
