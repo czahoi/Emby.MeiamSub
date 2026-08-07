@@ -9,6 +9,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
@@ -67,7 +68,7 @@ namespace Emby.MeiamSub.Shooter
         {
             _logger.Info("{0} Search | SubtitleSearchRequest -> {1}", new object[2] { Name, _jsonSerializer.SerializeToString(request) });
 
-            var subtitles = await SearchSubtitlesAsync(request);
+            var subtitles = await SearchSubtitlesAsync(request, cancellationToken);
 
             return subtitles;
         }
@@ -77,7 +78,7 @@ namespace Emby.MeiamSub.Shooter
         /// </summary>
         /// <param name="request"></param>
         /// <returns></returns>
-        private async Task<IEnumerable<RemoteSubtitleInfo>> SearchSubtitlesAsync(SubtitleSearchRequest request)
+        private async Task<IEnumerable<RemoteSubtitleInfo>> SearchSubtitlesAsync(SubtitleSearchRequest request, CancellationToken cancellationToken)
         {
             // 修改人: Meiam
             // 修改时间: 2025-12-22
@@ -108,7 +109,7 @@ namespace Emby.MeiamSub.Shooter
                 FileInfo fileInfo = new FileInfo(request.MediaPath);
 
                 var stopWatch = Stopwatch.StartNew();
-                var hash = await ComputeFileHashAsync(fileInfo);
+                var hash = await ComputeFileHashAsync(fileInfo, cancellationToken);
                 stopWatch.Stop();
 
                 _logger.Info("{0} Search | FileHash -> {1} (Took {2}ms)", new object[3] { Name, hash, stopWatch.ElapsedMilliseconds });
@@ -165,14 +166,15 @@ namespace Emby.MeiamSub.Shooter
 
                         foreach (var subFileInfo in subtitleResponse)
                         {
-                            foreach (var subFile in subFileInfo.Files)
+                            foreach (var subFile in subFileInfo.Files.Where(m =>
+                                !string.IsNullOrWhiteSpace(m.Link) && NormalizeFormat(m.Ext) != null))
                             {
                                 remoteSubtitles.Add(new RemoteSubtitleInfo()
                                 {
                                     Id = Base64Encode(_jsonSerializer.SerializeToString(new DownloadSubInfo
                                     {
                                         Url = subFile.Link,
-                                        Format = subFile.Ext,
+                                        Format = NormalizeFormat(subFile.Ext),
                                         Language = request.Language,
                                         IsForced = request.IsForced
                                     })),
@@ -180,7 +182,7 @@ namespace Emby.MeiamSub.Shooter
                                     Language = request.Language,
                                     Author = "Meiam ",
                                     ProviderName = $"{Name}",
-                                    Format = subFile.Ext,
+                                    Format = NormalizeFormat(subFile.Ext),
                                     Comment = $"Format : {ExtractFormat(subFile.Ext)}",
                                     IsHashMatch = true
                                 });
@@ -216,7 +218,7 @@ namespace Emby.MeiamSub.Shooter
         {
             _logger.Info("{0}  DownloadSub | Request -> {1}", new object[2] { Name, id });
 
-            return await DownloadSubAsync(id);
+            return await DownloadSubAsync(id, cancellationToken);
         }
 
         /// <summary>
@@ -224,7 +226,7 @@ namespace Emby.MeiamSub.Shooter
         /// </summary>
         /// <param name="info"></param>
         /// <returns></returns>
-        private async Task<SubtitleResponse> DownloadSubAsync(string info)
+        private async Task<SubtitleResponse> DownloadSubAsync(string info, CancellationToken cancellationToken)
         {
             // 修改人: Meiam
             // 修改时间: 2025-12-22
@@ -256,13 +258,20 @@ namespace Emby.MeiamSub.Shooter
 
                 if (response.StatusCode == HttpStatusCode.OK)
                 {
+                    var format = NormalizeFormat(downloadSub.Format)
+                        ?? throw new InvalidDataException($"Unsupported subtitle format: {downloadSub.Format}");
+                    var stream = new MemoryStream();
+                    await response.Content.CopyToAsync(stream, 81920, cancellationToken);
+                    var data = stream.ToArray();
+                    stream.Dispose();
+                    ValidateSubtitleData(data, format, response.ContentType);
 
                     return new SubtitleResponse()
                     {
                         Language = downloadSub.Language,
-                        IsForced = false,
-                        Format = downloadSub.Format,
-                        Stream = response.Content,
+                        IsForced = downloadSub.IsForced ?? false,
+                        Format = format,
+                        Stream = new MemoryStream(data, writable: false),
                     };
                 }
             }
@@ -271,7 +280,7 @@ namespace Emby.MeiamSub.Shooter
                 _logger.Error("{0} DownloadSub | Error -> {1}", Name, ex.Message);
             }
 
-            return new SubtitleResponse();
+            throw new InvalidDataException($"{Name} subtitle download failed.");
 
         }
         #endregion
@@ -319,6 +328,41 @@ namespace Emby.MeiamSub.Shooter
             return null;
         }
 
+        private static string NormalizeFormat(string format)
+        {
+            var value = format?.Trim().TrimStart('.').ToLowerInvariant();
+            return value == SRT || value == ASS || value == SSA ? value : null;
+        }
+
+        private static void ValidateSubtitleData(byte[] data, string format, string mediaType)
+        {
+            if (data == null || data.Length < 8)
+            {
+                throw new InvalidDataException("Subtitle response is empty.");
+            }
+
+            if (data[0] == (byte)'P' && data[1] == (byte)'K' ||
+                data.Length >= 7 && Encoding.ASCII.GetString(data, 0, 7) == "Rar!\u001a\u0007")
+            {
+                throw new InvalidDataException("Compressed subtitle responses are not supported by Shooter.");
+            }
+
+            var sample = Encoding.UTF8.GetString(data, 0, Math.Min(data.Length, 4096)).TrimStart('\uFEFF', ' ', '\r', '\n', '\t');
+            if (sample.StartsWith("<", StringComparison.Ordinal) || sample.StartsWith("{", StringComparison.Ordinal) ||
+                sample.StartsWith("[", StringComparison.Ordinal) && format == SRT ||
+                mediaType?.IndexOf("html", StringComparison.OrdinalIgnoreCase) >= 0 || mediaType?.IndexOf("json", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                throw new InvalidDataException("Shooter returned an error document instead of a subtitle.");
+            }
+
+            var valid = format == SRT ? sample.IndexOf("-->", StringComparison.Ordinal) >= 0 :
+                sample.IndexOf("[Script Info]", StringComparison.OrdinalIgnoreCase) >= 0 || sample.IndexOf("Dialogue:", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (!valid)
+            {
+                throw new InvalidDataException($"Downloaded content is not a valid {format} subtitle.");
+            }
+        }
+
         /// <summary>
         /// 规范化语言代码
         /// </summary>
@@ -353,7 +397,7 @@ namespace Emby.MeiamSub.Shooter
         /// </summary>
         /// <param name="fileInfo">文件信息对象</param>
         /// <returns>计算得到的文件 Hash 字符串，如果文件过小或不存在则返回空字符串</returns>
-        public static async Task<string> ComputeFileHashAsync(FileInfo fileInfo)
+        public static async Task<string> ComputeFileHashAsync(FileInfo fileInfo, CancellationToken cancellationToken)
         {
             // 修改人: Meiam
             // 修改时间: 2025-12-22
@@ -379,7 +423,7 @@ namespace Emby.MeiamSub.Shooter
                 for (int i = 0; i < 4; ++i)
                 {
                     fs.Seek(offset[i], SeekOrigin.Begin);
-                    await fs.ReadAsync(bBuf, 0, 4 * 1024);
+                    await ReadFullAsync(fs, bBuf, 0, 4 * 1024, cancellationToken);
 
                     using (MD5 md5Hash = MD5.Create())
                     {
@@ -402,6 +446,21 @@ namespace Emby.MeiamSub.Shooter
             }
 
             return ret;
+        }
+
+        private static async Task ReadFullAsync(Stream stream, byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        {
+            while (count > 0)
+            {
+                var read = await stream.ReadAsync(buffer, offset, count, cancellationToken);
+                if (read == 0)
+                {
+                    throw new EndOfStreamException();
+                }
+
+                offset += read;
+                count -= read;
+            }
         }
         #endregion
     }

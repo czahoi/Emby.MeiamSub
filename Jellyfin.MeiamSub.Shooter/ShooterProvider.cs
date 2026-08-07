@@ -73,7 +73,7 @@ namespace Jellyfin.MeiamSub.Shooter
         {
             _logger.LogInformation("DEBUG: Received Search request for " + (request?.MediaPath ?? "NULL"));
 
-            var subtitles = await SearchSubtitlesAsync(request);
+            var subtitles = await SearchSubtitlesAsync(request, cancellationToken);
 
             return subtitles;
         }
@@ -83,7 +83,7 @@ namespace Jellyfin.MeiamSub.Shooter
         /// </summary>
         /// <param name="request"></param>
         /// <returns></returns>
-        private async Task<IEnumerable<RemoteSubtitleInfo>> SearchSubtitlesAsync(SubtitleSearchRequest request)
+        private async Task<IEnumerable<RemoteSubtitleInfo>> SearchSubtitlesAsync(SubtitleSearchRequest request, CancellationToken cancellationToken)
         {
             // 修改人: Meiam
             // 修改时间: 2025-12-22
@@ -135,7 +135,7 @@ namespace Jellyfin.MeiamSub.Shooter
                 _logger.LogInformation("DEBUG: Starting hash calculation for " + fileName);
 
                 var stopWatch = Stopwatch.StartNew();
-                var hash = await ComputeFileHashAsync(fileInfo);
+                var hash = await ComputeFileHashAsync(fileInfo, cancellationToken);
                 stopWatch.Stop();
 
                 _logger.LogInformation(Name + " Search | FileHash -> " + hash + " (Took " + stopWatch.ElapsedMilliseconds + "ms)");
@@ -156,13 +156,13 @@ namespace Jellyfin.MeiamSub.Shooter
                 using var httpClient = _httpClientFactory.CreateClient(Name);
 
                 // 发送 POST 请求
-                var response = await httpClient.PostAsync(ApiUrl, content);
+                using var response = await httpClient.PostAsync(ApiUrl, content, cancellationToken);
 
                 _logger.LogInformation($"{Name} Search | Response -> {JsonSerializer.Serialize(response)}");
 
                 // 处理响应
 
-                if (response.IsSuccessStatusCode && response.Content.Headers.Any(m => m.Value.Contains("application/json; charset=utf-8")))
+                if (response.IsSuccessStatusCode && response.Content.Headers.ContentType?.MediaType?.Equals("application/json", StringComparison.OrdinalIgnoreCase) == true)
 
                 {
 
@@ -209,21 +209,22 @@ namespace Jellyfin.MeiamSub.Shooter
 
                         foreach (var subFileInfo in subtitles)
                         {
-                            foreach (var subFile in subFileInfo.Files)
+                            foreach (var subFile in subFileInfo.Files.Where(m =>
+                                !string.IsNullOrWhiteSpace(m.Link) && NormalizeFormat(m.Ext) != null))
                             {
                                 remoteSubtitles.Add(new RemoteSubtitleInfo()
                                 {
                                     Id = Base64Encode(JsonSerializer.Serialize(new DownloadSubInfo
                                     {
                                         Url = subFile.Link,
-                                        Format = subFile.Ext,
+                                        Format = NormalizeFormat(subFile.Ext),
                                         Language = request.Language,
                                         TwoLetterISOLanguageName = request.TwoLetterISOLanguageName,
                                     })),
                                     Name = $"[MEIAMSUB] {Path.GetFileName(request.MediaPath)} | {request.TwoLetterISOLanguageName} | 射手",
                                     Author = "Meiam ",
                                     ProviderName = $"{Name}",
-                                    Format = subFile.Ext,
+                                    Format = NormalizeFormat(subFile.Ext),
                                     Comment = $"Format : {ExtractFormat(subFile.Ext)}",
                                     IsHashMatch = true
                                 });
@@ -260,7 +261,7 @@ namespace Jellyfin.MeiamSub.Shooter
         {
             _logger.LogInformation($"{Name} DownloadSub | Request -> {id}");
 
-            return await DownloadSubAsync(id);
+            return await DownloadSubAsync(id, cancellationToken);
         }
 
         /// <summary>
@@ -268,7 +269,7 @@ namespace Jellyfin.MeiamSub.Shooter
         /// </summary>
         /// <param name="info"></param>
         /// <returns></returns>
-        private async Task<SubtitleResponse> DownloadSubAsync(string info)
+        private async Task<SubtitleResponse> DownloadSubAsync(string info, CancellationToken cancellationToken)
         {
             // 修改人: Meiam
             // 修改时间: 2025-12-22
@@ -293,19 +294,23 @@ namespace Jellyfin.MeiamSub.Shooter
 
                 using var httpClient = _httpClientFactory.CreateClient(Name);
 
-                var response = await httpClient.SendAsync(options);
+                using var response = await httpClient.SendAsync(options, cancellationToken);
 
                 _logger.LogInformation($"{Name} DownloadSub | Response -> {response.StatusCode}");
 
                 if (response.StatusCode == HttpStatusCode.OK)
                 {
-                    var stream = await response.Content.ReadAsStreamAsync();
+                    var format = NormalizeFormat(downloadSub.Format)
+                        ?? throw new InvalidDataException($"Unsupported subtitle format: {downloadSub.Format}");
+                    var data = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+                    ValidateSubtitleData(data, format, response.Content.Headers.ContentType?.MediaType);
+                    var stream = new MemoryStream(data, writable: false);
 
                     return new SubtitleResponse()
                     {
                         Language = downloadSub.Language,
                         IsForced = false,
-                        Format = downloadSub.Format,
+                        Format = format,
                         Stream = stream,
                     };
                 }
@@ -315,7 +320,7 @@ namespace Jellyfin.MeiamSub.Shooter
                 _logger.LogError(ex, "{0} DownloadSub | Error -> {1}", Name, ex.Message);
             }
 
-            return new SubtitleResponse();
+            throw new InvalidDataException($"{Name} subtitle download failed.");
 
         }
         #endregion
@@ -364,6 +369,41 @@ namespace Jellyfin.MeiamSub.Shooter
             return null;
         }
 
+        private static string NormalizeFormat(string format)
+        {
+            var value = format?.Trim().TrimStart('.').ToLowerInvariant();
+            return value == SRT || value == ASS || value == SSA ? value : null;
+        }
+
+        private static void ValidateSubtitleData(byte[] data, string format, string mediaType)
+        {
+            if (data == null || data.Length < 8)
+            {
+                throw new InvalidDataException("Subtitle response is empty.");
+            }
+
+            if (data[0] == (byte)'P' && data[1] == (byte)'K' ||
+                data.Length >= 7 && Encoding.ASCII.GetString(data, 0, 7) == "Rar!\u001a\u0007")
+            {
+                throw new InvalidDataException("Compressed subtitle responses are not supported by Shooter.");
+            }
+
+            var sample = Encoding.UTF8.GetString(data, 0, Math.Min(data.Length, 4096)).TrimStart('\uFEFF', ' ', '\r', '\n', '\t');
+            if (sample.StartsWith("<", StringComparison.Ordinal) || sample.StartsWith("{", StringComparison.Ordinal) ||
+                sample.StartsWith("[", StringComparison.Ordinal) && format == SRT ||
+                mediaType?.IndexOf("html", StringComparison.OrdinalIgnoreCase) >= 0 || mediaType?.IndexOf("json", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                throw new InvalidDataException("Shooter returned an error document instead of a subtitle.");
+            }
+
+            var valid = format == SRT ? sample.Contains("-->", StringComparison.Ordinal) :
+                sample.Contains("[Script Info]", StringComparison.OrdinalIgnoreCase) || sample.Contains("Dialogue:", StringComparison.OrdinalIgnoreCase);
+            if (!valid)
+            {
+                throw new InvalidDataException($"Downloaded content is not a valid {format} subtitle.");
+            }
+        }
+
         /// <summary>
         /// 规范化语言代码
         /// </summary>
@@ -398,7 +438,7 @@ namespace Jellyfin.MeiamSub.Shooter
         /// </summary>
         /// <param name="fileInfo">文件信息对象</param>
         /// <returns>计算得到的文件 Hash 字符串，如果文件过小或不存在则返回空字符串</returns>
-        public static async Task<string> ComputeFileHashAsync(FileInfo fileInfo)
+        public static async Task<string> ComputeFileHashAsync(FileInfo fileInfo, CancellationToken cancellationToken)
         {
             // 修改人: Meiam
             // 修改时间: 2025-12-22
@@ -424,7 +464,7 @@ namespace Jellyfin.MeiamSub.Shooter
                 for (int i = 0; i < 4; ++i)
                 {
                     fs.Seek(offset[i], SeekOrigin.Begin);
-                    await fs.ReadExactlyAsync(bBuf, 0, 4 * 1024);
+                    await fs.ReadExactlyAsync(bBuf, 0, 4 * 1024, cancellationToken);
 
                     using (MD5 md5Hash = MD5.Create())
                     {

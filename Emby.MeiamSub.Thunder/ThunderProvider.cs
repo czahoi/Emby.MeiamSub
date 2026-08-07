@@ -78,7 +78,7 @@ namespace Emby.MeiamSub.Thunder
         {
             _logger.Info("{0} Search | SubtitleSearchRequest -> {1}", new object[2] { Name, _jsonSerializer.SerializeToString(request) });
 
-            var subtitles = await SearchSubtitlesAsync(request);
+            var subtitles = await SearchSubtitlesAsync(request, cancellationToken);
 
             return subtitles;
         }
@@ -88,7 +88,7 @@ namespace Emby.MeiamSub.Thunder
         /// </summary>
         /// <param name="request"></param>
         /// <returns></returns>
-        private async Task<IEnumerable<RemoteSubtitleInfo>> SearchSubtitlesAsync(SubtitleSearchRequest request)
+        private async Task<IEnumerable<RemoteSubtitleInfo>> SearchSubtitlesAsync(SubtitleSearchRequest request, CancellationToken cancellationToken)
         {
             // 修改人：Mayfly777w
             // 修改时间：2026-01-01
@@ -131,7 +131,7 @@ namespace Emby.MeiamSub.Thunder
                 }
 
                 var stopWatch = Stopwatch.StartNew();
-                var cid = await GetCidByFileAsync(request.MediaPath);
+                var cid = await GetCidByFileAsync(request.MediaPath, cancellationToken);
                 stopWatch.Stop();
 
                 _logger.Info("{0} Search | FileHash -> {1} (Took {2}ms)", new object[3] { Name, cid, stopWatch.ElapsedMilliseconds });
@@ -139,7 +139,7 @@ namespace Emby.MeiamSub.Thunder
 
                 HttpRequestOptions options = new HttpRequestOptions
                 {
-                    Url = $"https://api-shoulei-ssl.xunlei.com/oracle/subtitle?name={MovieName}",
+                    Url = $"https://api-shoulei-ssl.xunlei.com/oracle/subtitle?name={Uri.EscapeDataString(MovieName)}",
                     UserAgent = $"{Name}",
                     TimeoutMs = 30000,
                     AcceptHeader = "*/*",
@@ -156,7 +156,16 @@ namespace Emby.MeiamSub.Thunder
                     {
                         _logger.Info("{0} Search | Response -> {1}", new object[2] { Name, _jsonSerializer.SerializeToString(subtitleResponse) });
 
-                        var subtitles = subtitleResponse.Data.Where(m => !string.IsNullOrEmpty(m.Name));
+                        var subtitles = (subtitleResponse.Data ?? new List<SublistItem>())
+                            .Where(m => !string.IsNullOrWhiteSpace(m.Name) &&
+                                !string.IsNullOrWhiteSpace(m.Url) &&
+                                NormalizeFormat(m.Ext) != null)
+                            .GroupBy(m => m.Url, StringComparer.OrdinalIgnoreCase)
+                            .Select(m => m.First())
+                            .OrderByDescending(m => !string.IsNullOrEmpty(cid) && string.Equals(cid, m.Cid, StringComparison.OrdinalIgnoreCase))
+                            .ThenByDescending(m => m.Langs?.IndexOf("简体", StringComparison.OrdinalIgnoreCase) >= 0)
+                            .Take(20)
+                            .ToList();
 
                         var remoteSubtitles = new List<RemoteSubtitleInfo>();
 
@@ -169,7 +178,7 @@ namespace Emby.MeiamSub.Thunder
                                     Id = Base64Encode(_jsonSerializer.SerializeToString(new DownloadSubInfo
                                     {
                                         Url = item.Url,
-                                        Format = item.Ext,
+                                        Format = NormalizeFormat(item.Ext),
                                         Language = request.Language,
                                         IsForced = request.IsForced
                                     })),
@@ -177,8 +186,8 @@ namespace Emby.MeiamSub.Thunder
                                     Language = request.Language,
                                     Author = "Meiam ",
                                     ProviderName = $"{Name}",
-                                    Format = item.Ext,
-                                    Comment = $"Format : {item.Ext}",
+                                    Format = NormalizeFormat(item.Ext),
+                                    Comment = $"Format : {NormalizeFormat(item.Ext)}",
                                     IsHashMatch = cid == item.Cid,
                                 });
                             }
@@ -214,7 +223,7 @@ namespace Emby.MeiamSub.Thunder
         {
             _logger.Info("{0} DownloadSub | Request -> {1}", new object[2] { Name, id });
 
-            return await DownloadSubAsync(id);
+            return await DownloadSubAsync(id, cancellationToken);
         }
 
         /// <summary>
@@ -222,7 +231,7 @@ namespace Emby.MeiamSub.Thunder
         /// </summary>
         /// <param name="info"></param>
         /// <returns></returns>
-        private async Task<SubtitleResponse> DownloadSubAsync(string info)
+        private async Task<SubtitleResponse> DownloadSubAsync(string info, CancellationToken cancellationToken)
         {
             // 修改人: Meiam
             // 修改时间: 2025-12-22
@@ -252,13 +261,20 @@ namespace Emby.MeiamSub.Thunder
 
                 if (response.StatusCode == HttpStatusCode.OK)
                 {
+                    var format = NormalizeFormat(downloadSub.Format)
+                        ?? throw new InvalidDataException($"Unsupported subtitle format: {downloadSub.Format}");
+                    var stream = new MemoryStream();
+                    await response.Content.CopyToAsync(stream, 81920, cancellationToken);
+                    var data = stream.ToArray();
+                    stream.Dispose();
+                    ValidateSubtitleData(data, format, response.ContentType);
 
                     return new SubtitleResponse()
                     {
                         Language = downloadSub.Language,
-                        IsForced = false,
-                        Format = downloadSub.Format,
-                        Stream = response.Content,
+                        IsForced = downloadSub.IsForced ?? false,
+                        Format = format,
+                        Stream = new MemoryStream(data, writable: false),
                     };
                 }
             }
@@ -267,7 +283,7 @@ namespace Emby.MeiamSub.Thunder
                 _logger.Error("{0} DownloadSub | Error -> {1}", Name, ex.Message);
             }
 
-            return new SubtitleResponse();
+            throw new InvalidDataException($"{Name} subtitle download failed.");
 
         }
         #endregion
@@ -315,6 +331,44 @@ namespace Emby.MeiamSub.Thunder
             return null;
         }
 
+        private static string NormalizeFormat(string format)
+        {
+            var value = format?.Trim().TrimStart('.').ToLowerInvariant();
+            return value == SRT || value == ASS || value == SSA ? value : null;
+        }
+
+        private static void ValidateSubtitleData(byte[] data, string format, string mediaType)
+        {
+            if (data == null || data.Length < 8)
+            {
+                throw new InvalidDataException("Subtitle response is empty.");
+            }
+
+            if (data[0] == (byte)'P' && data[1] == (byte)'K' ||
+                data.Length >= 7 && Encoding.ASCII.GetString(data, 0, 7) == "Rar!\u001a\u0007")
+            {
+                throw new InvalidDataException("Compressed subtitle responses are not supported by Thunder.");
+            }
+
+            var sample = Encoding.UTF8.GetString(data, 0, Math.Min(data.Length, 4096)).TrimStart('\uFEFF', ' ', '\r', '\n', '\t');
+            if (sample.StartsWith("<", StringComparison.Ordinal) ||
+                sample.StartsWith("{", StringComparison.Ordinal) ||
+                sample.StartsWith("[", StringComparison.Ordinal) ||
+                mediaType?.IndexOf("html", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                mediaType?.IndexOf("json", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                throw new InvalidDataException("Thunder returned an error document instead of a subtitle.");
+            }
+
+            var valid = format == SRT
+                ? sample.IndexOf("-->", StringComparison.Ordinal) >= 0
+                : sample.IndexOf("[Script Info]", StringComparison.OrdinalIgnoreCase) >= 0 || sample.IndexOf("Dialogue:", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (!valid)
+            {
+                throw new InvalidDataException($"Downloaded content is not a valid {format} subtitle.");
+            }
+        }
+
         /// <summary>
         /// 规范化语言代码
         /// </summary>
@@ -349,7 +403,7 @@ namespace Emby.MeiamSub.Thunder
         /// </summary>
         /// <param name="filePath">文件路径</param>
         /// <returns>计算得到的 CID 字符串</returns>
-        private async Task<string> GetCidByFileAsync(string filePath)
+        private async Task<string> GetCidByFileAsync(string filePath, CancellationToken cancellationToken)
         {
             // 修改人: Meiam
             // 修改时间: 2026-06-11
@@ -375,16 +429,16 @@ namespace Emby.MeiamSub.Thunder
                     var buffer = new byte[0xf000];
                     if (fileSize < 0xf000)
                     {
-                        await stream.ReadAsync(buffer, 0, (int)fileSize);
+                        await ReadFullAsync(stream, buffer, 0, (int)fileSize, cancellationToken);
                         buffer = sha1.ComputeHash(buffer, 0, (int)fileSize);
                     }
                     else
                     {
-                        await stream.ReadAsync(buffer, 0, 0x5000);
+                        await ReadFullAsync(stream, buffer, 0, 0x5000, cancellationToken);
                         stream.Seek(fileSize / 3, SeekOrigin.Begin);
-                        await stream.ReadAsync(buffer, 0x5000, 0x5000);
+                        await ReadFullAsync(stream, buffer, 0x5000, 0x5000, cancellationToken);
                         stream.Seek(fileSize - 0x5000, SeekOrigin.Begin);
-                        await stream.ReadAsync(buffer, 0xa000, 0x5000);
+                        await ReadFullAsync(stream, buffer, 0xa000, 0x5000, cancellationToken);
 
                         buffer = sha1.ComputeHash(buffer, 0, 0xf000);
                     }
@@ -395,6 +449,21 @@ namespace Emby.MeiamSub.Thunder
                     }
                     return result;
                 }
+            }
+        }
+
+        private static async Task ReadFullAsync(Stream stream, byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        {
+            while (count > 0)
+            {
+                var read = await stream.ReadAsync(buffer, offset, count, cancellationToken);
+                if (read == 0)
+                {
+                    throw new EndOfStreamException();
+                }
+
+                offset += read;
+                count -= read;
             }
         }
         #endregion

@@ -31,10 +31,14 @@
 | 组件名称 | 适用平台 | 目标框架 | 说明 |
 | :--- | :--- | :--- | :--- |
 | **Emby.MeiamSub.Thunder** | Emby | .NET Standard 2.1 | 迅雷看看字幕插件 |
-| **Emby.MeiamSub.Shooter** | Emby | .NET Standard 2.1 | 射手影音字幕插件 |
+| **Emby.MeiamSub.Shooter** | Emby | .NET Standard 2.1 | 射手影音字幕插件（已弃用） |
+| **Emby.MeiamSub.Assrt** | Emby | .NET Standard 2.1 | Assrt 字幕插件 |
 | **Jellyfin.MeiamSub.Thunder** | Jellyfin | .NET 9.0 | 迅雷看看字幕插件 (现代 DI 架构) |
-| **Jellyfin.MeiamSub.Shooter** | Jellyfin | .NET 9.0 | 射手影音字幕插件 (现代 DI 架构) |
+| **Jellyfin.MeiamSub.Shooter** | Jellyfin | .NET 9.0 | 射手影音字幕插件（已弃用） |
+| **Jellyfin.MeiamSub.Assrt** | Jellyfin | .NET 9.0 | Assrt 字幕插件 |
 | **Emby.MeiamSub.DevTool** | 开发调试 | .NET 8.0 | 哈希算法测试与 API 模拟工具 |
+
+> **插件状态：** 建议使用 Assrt 和 Thunder。Shooter 的旧版哈希接口已很少返回有效字幕，v1.0.15.0 起进入弃用状态，仅保留安全和兼容性修复。
 
 ---
 

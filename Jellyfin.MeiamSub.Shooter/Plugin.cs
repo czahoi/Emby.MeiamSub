@@ -27,7 +27,7 @@ namespace Jellyfin.MeiamSub.Shooter
         /// <summary>
         /// 插件描述
         /// </summary>
-        public override string Description => "Download subtitles from Shooter";
+        public override string Description => "Deprecated: the legacy Shooter API rarely returns usable results. Use Assrt or Thunder instead.";
 
         public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer)
             : base(applicationPaths, xmlSerializer)
