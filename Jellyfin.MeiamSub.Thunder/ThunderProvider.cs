@@ -135,11 +135,27 @@ namespace Jellyfin.MeiamSub.Thunder
                     return Array.Empty<RemoteSubtitleInfo>();
                 }
 
+                var cid = string.Empty;
                 var stopWatch = Stopwatch.StartNew();
-                var cid = await GetCidByFileAsync(request.MediaPath, cancellationToken);
-                stopWatch.Stop();
-
-                _logger.LogInformation(Name + " Search | FileHash -> " + cid + " (Took " + stopWatch.ElapsedMilliseconds + "ms)");
+                try
+                {
+                    cid = await GetCidByFileAsync(request.MediaPath, cancellationToken);
+                    _logger.LogInformation("{Provider} Search | FileHash -> {FileHash} (Took {ElapsedMilliseconds}ms)",
+                        Name, cid, stopWatch.ElapsedMilliseconds);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    _logger.LogWarning("{Provider} Search | File hash unavailable ({ExceptionType}: {Message}), continue with name search.",
+                        Name, ex.GetType().Name, ex.Message);
+                }
+                finally
+                {
+                    stopWatch.Stop();
+                }
 
                 using var options = new HttpRequestMessage
                 {
@@ -190,7 +206,7 @@ namespace Jellyfin.MeiamSub.Thunder
                                     ProviderName = $"{Name}",
                                     Format = NormalizeFormat(item.Ext),
                                     Comment = $"Format : {NormalizeFormat(item.Ext)}",
-                                    IsHashMatch = cid == item.Cid,
+                                    IsHashMatch = !string.IsNullOrEmpty(cid) && string.Equals(cid, item.Cid, StringComparison.OrdinalIgnoreCase),
                                 });
                             }
                         }

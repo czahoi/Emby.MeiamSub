@@ -76,7 +76,13 @@ namespace Emby.MeiamSub.Thunder
         /// <returns>远程字幕信息列表</returns>
         public async Task<IEnumerable<RemoteSubtitleInfo>> Search(SubtitleSearchRequest request, CancellationToken cancellationToken)
         {
-            _logger.Info("{0} Search | SubtitleSearchRequest -> {1}", new object[2] { Name, _jsonSerializer.SerializeToString(request) });
+            if (request == null)
+            {
+                _logger.Info("{0} Search | Request is null, skip search.", Name);
+                return Array.Empty<RemoteSubtitleInfo>();
+            }
+
+            _logger.Info("{0} Search | ContentType -> {1} | Language -> {2}", Name, request.ContentType, request.Language);
 
             var subtitles = await SearchSubtitlesAsync(request, cancellationToken);
 
@@ -130,11 +136,25 @@ namespace Emby.MeiamSub.Thunder
                     return Array.Empty<RemoteSubtitleInfo>();
                 }
 
+                var cid = string.Empty;
                 var stopWatch = Stopwatch.StartNew();
-                var cid = await GetCidByFileAsync(request.MediaPath, cancellationToken);
-                stopWatch.Stop();
-
-                _logger.Info("{0} Search | FileHash -> {1} (Took {2}ms)", new object[3] { Name, cid, stopWatch.ElapsedMilliseconds });
+                try
+                {
+                    cid = await GetCidByFileAsync(request.MediaPath, cancellationToken);
+                    _logger.Info("{0} Search | FileHash -> {1} (Took {2}ms)", Name, cid, stopWatch.ElapsedMilliseconds);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    _logger.Warn("{0} Search | File hash unavailable ({1}: {2}), continue with name search.", Name, ex.GetType().Name, ex.Message);
+                }
+                finally
+                {
+                    stopWatch.Stop();
+                }
 
 
                 HttpRequestOptions options = new HttpRequestOptions
@@ -186,7 +206,7 @@ namespace Emby.MeiamSub.Thunder
                                     ProviderName = $"{Name}",
                                     Format = NormalizeFormat(item.Ext),
                                     Comment = $"Format : {NormalizeFormat(item.Ext)}",
-                                    IsHashMatch = cid == item.Cid,
+                                    IsHashMatch = !string.IsNullOrEmpty(cid) && string.Equals(cid, item.Cid, StringComparison.OrdinalIgnoreCase),
                                 });
                             }
                         }
