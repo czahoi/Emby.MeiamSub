@@ -1,4 +1,5 @@
 using Jellyfin.MeiamSub.Thunder.Model;
+using MeiamSubtitles.Shared;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Controller.Subtitles;
 using MediaBrowser.Model.Providers;
@@ -282,7 +283,7 @@ namespace Jellyfin.MeiamSub.Thunder
                     var format = NormalizeFormat(downloadSub.Format)
                         ?? throw new InvalidDataException($"Unsupported subtitle format: {downloadSub.Format}");
                     var data = await response.Content.ReadAsByteArrayAsync(cancellationToken);
-                    ValidateSubtitleData(data, format, response.Content.Headers.ContentType?.MediaType);
+                    SubtitleContentValidator.Validate(data, format, response.Content.Headers.ContentType?.MediaType);
                     var stream = new MemoryStream(data, writable: false);
 
                     return new SubtitleResponse()
@@ -351,38 +352,6 @@ namespace Jellyfin.MeiamSub.Thunder
         {
             var value = format?.Trim().TrimStart('.').ToLowerInvariant();
             return value == SRT || value == ASS || value == SSA ? value : null;
-        }
-
-        private static void ValidateSubtitleData(byte[] data, string format, string mediaType)
-        {
-            if (data == null || data.Length < 8)
-            {
-                throw new InvalidDataException("Subtitle response is empty.");
-            }
-
-            if (data[0] == (byte)'P' && data[1] == (byte)'K' ||
-                data.Length >= 7 && Encoding.ASCII.GetString(data, 0, 7) == "Rar!\u001a\u0007")
-            {
-                throw new InvalidDataException("Compressed subtitle responses are not supported by Thunder.");
-            }
-
-            var sample = Encoding.UTF8.GetString(data, 0, Math.Min(data.Length, 4096)).TrimStart('\uFEFF', ' ', '\r', '\n', '\t');
-            if (sample.StartsWith("<", StringComparison.Ordinal) ||
-                sample.StartsWith("{", StringComparison.Ordinal) ||
-                sample.StartsWith("[", StringComparison.Ordinal) ||
-                mediaType?.IndexOf("html", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                mediaType?.IndexOf("json", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                throw new InvalidDataException("Thunder returned an error document instead of a subtitle.");
-            }
-
-            var valid = format == SRT
-                ? sample.Contains("-->", StringComparison.Ordinal)
-                : sample.Contains("[Script Info]", StringComparison.OrdinalIgnoreCase) || sample.Contains("Dialogue:", StringComparison.OrdinalIgnoreCase);
-            if (!valid)
-            {
-                throw new InvalidDataException($"Downloaded content is not a valid {format} subtitle.");
-            }
         }
 
         /// <summary>

@@ -33,6 +33,10 @@
     <Folder Include="Configuration\" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\Shared\SubtitleContentValidator.cs" Link="Shared\SubtitleContentValidator.cs" />
+  </ItemGroup>
+
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
     <Copy SourceFiles="$(TargetDir)$(TargetFileName)" DestinationFolder="$(SolutionDir)$(ConfigurationName)\" SkipUnchangedFiles="false" />
   </Target>

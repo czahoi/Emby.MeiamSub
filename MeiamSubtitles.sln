@@ -13,6 +13,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Jellyfin.MeiamSub.Assrt", "
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Emby.MeiamSub.Assrt", "Emby.MeiamSub.Assrt\Emby.MeiamSub.Assrt.csproj", "{D276A8D0-4B17-4EEF-94B6-61D646DE5A22}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MeiamSubtitles.Tests", "tests\MeiamSubtitles.Tests\MeiamSubtitles.Tests.csproj", "{B8A8BFC1-8A0D-48C5-89AC-4DDDC2DDC3C9}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -39,6 +41,10 @@ Global
 		{D276A8D0-4B17-4EEF-94B6-61D646DE5A22}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D276A8D0-4B17-4EEF-94B6-61D646DE5A22}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{D276A8D0-4B17-4EEF-94B6-61D646DE5A22}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B8A8BFC1-8A0D-48C5-89AC-4DDDC2DDC3C9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B8A8BFC1-8A0D-48C5-89AC-4DDDC2DDC3C9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B8A8BFC1-8A0D-48C5-89AC-4DDDC2DDC3C9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B8A8BFC1-8A0D-48C5-89AC-4DDDC2DDC3C9}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
