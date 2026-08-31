@@ -1,4 +1,5 @@
 using Emby.MeiamSub.Thunder.Model;
+using MeiamSubtitles.Shared;
 using MediaBrowser.Common;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller.Base;
@@ -285,7 +286,7 @@ namespace Emby.MeiamSub.Thunder
                     await response.Content.CopyToAsync(stream, 81920, cancellationToken);
                     var data = stream.ToArray();
                     stream.Dispose();
-                    ValidateSubtitleData(data, format, response.ContentType);
+                    SubtitleContentValidator.Validate(data, format, response.ContentType);
 
                     return new SubtitleResponse()
                     {
@@ -353,38 +354,6 @@ namespace Emby.MeiamSub.Thunder
         {
             var value = format?.Trim().TrimStart('.').ToLowerInvariant();
             return value == SRT || value == ASS || value == SSA ? value : null;
-        }
-
-        private static void ValidateSubtitleData(byte[] data, string format, string mediaType)
-        {
-            if (data == null || data.Length < 8)
-            {
-                throw new InvalidDataException("Subtitle response is empty.");
-            }
-
-            if (data[0] == (byte)'P' && data[1] == (byte)'K' ||
-                data.Length >= 7 && Encoding.ASCII.GetString(data, 0, 7) == "Rar!\u001a\u0007")
-            {
-                throw new InvalidDataException("Compressed subtitle responses are not supported by Thunder.");
-            }
-
-            var sample = Encoding.UTF8.GetString(data, 0, Math.Min(data.Length, 4096)).TrimStart('\uFEFF', ' ', '\r', '\n', '\t');
-            if (sample.StartsWith("<", StringComparison.Ordinal) ||
-                sample.StartsWith("{", StringComparison.Ordinal) ||
-                sample.StartsWith("[", StringComparison.Ordinal) ||
-                mediaType?.IndexOf("html", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                mediaType?.IndexOf("json", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                throw new InvalidDataException("Thunder returned an error document instead of a subtitle.");
-            }
-
-            var valid = format == SRT
-                ? sample.IndexOf("-->", StringComparison.Ordinal) >= 0
-                : sample.IndexOf("[Script Info]", StringComparison.OrdinalIgnoreCase) >= 0 || sample.IndexOf("Dialogue:", StringComparison.OrdinalIgnoreCase) >= 0;
-            if (!valid)
-            {
-                throw new InvalidDataException($"Downloaded content is not a valid {format} subtitle.");
-            }
         }
 
         /// <summary>
