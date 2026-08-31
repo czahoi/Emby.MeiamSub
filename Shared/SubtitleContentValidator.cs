@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 
@@ -19,26 +20,34 @@ namespace MeiamSubtitles.Shared
                 throw new InvalidDataException("Compressed subtitle responses are not supported by Thunder.");
             }
 
-            var sample = DecodeSample(data);
             if (mediaType?.IndexOf("html", StringComparison.OrdinalIgnoreCase) >= 0 ||
                 mediaType?.IndexOf("json", StringComparison.OrdinalIgnoreCase) >= 0)
             {
                 throw new InvalidDataException("Thunder returned an error document instead of a subtitle.");
             }
 
-            var valid = format == "srt"
-                ? sample.IndexOf("-->", StringComparison.Ordinal) >= 0
-                : sample.IndexOf("[Script Info]", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                  sample.IndexOf("Dialogue:", StringComparison.OrdinalIgnoreCase) >= 0;
-
-            if (valid)
+            var errorDocument = false;
+            foreach (var sample in DecodeSamples(data))
             {
-                return;
+                if (sample.StartsWith("<", StringComparison.Ordinal) ||
+                    sample.StartsWith("{", StringComparison.Ordinal))
+                {
+                    errorDocument = true;
+                    continue;
+                }
+
+                if (IsValidSubtitle(sample, format))
+                {
+                    return;
+                }
+
+                if (sample.StartsWith("[", StringComparison.Ordinal))
+                {
+                    errorDocument = true;
+                }
             }
 
-            if (sample.StartsWith("<", StringComparison.Ordinal) ||
-                sample.StartsWith("{", StringComparison.Ordinal) ||
-                sample.StartsWith("[", StringComparison.Ordinal))
+            if (errorDocument)
             {
                 throw new InvalidDataException("Thunder returned an error document instead of a subtitle.");
             }
@@ -46,63 +55,51 @@ namespace MeiamSubtitles.Shared
             throw new InvalidDataException($"Downloaded content is not a valid {format} subtitle.");
         }
 
-        private static string DecodeSample(byte[] data)
+        private static bool IsValidSubtitle(string sample, string format)
         {
-            var length = Math.Min(data.Length, 4096);
-            var encoding = DetectEncoding(data);
-            return encoding.GetString(data, 0, length)
-                .TrimStart('\uFEFF', ' ', '\r', '\n', '\t');
+            return format == "srt"
+                ? sample.IndexOf("-->", StringComparison.Ordinal) >= 0
+                : sample.IndexOf("[Script Info]", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                  sample.IndexOf("Dialogue:", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
-        private static Encoding DetectEncoding(byte[] data)
+        private static IEnumerable<string> DecodeSamples(byte[] data)
         {
+            var length = Math.Min(data.Length, 4096);
+
             if (data.Length >= 2)
             {
                 if (data[0] == 0xFF && data[1] == 0xFE)
                 {
-                    return Encoding.Unicode;
+                    yield return DecodeSample(data, length, Encoding.Unicode);
+                    yield break;
                 }
 
                 if (data[0] == 0xFE && data[1] == 0xFF)
                 {
-                    return Encoding.BigEndianUnicode;
+                    yield return DecodeSample(data, length, Encoding.BigEndianUnicode);
+                    yield break;
                 }
             }
 
-            var length = Math.Min(data.Length, 512);
-            var pairs = length / 2;
-            if (pairs >= 4)
+            if (data.Length >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF)
             {
-                // Some Thunder SRT responses are UTF-16 without a BOM. Detect the
-                // characteristic null-byte pattern before falling back to UTF-8.
-                var littleEndianNulls = 0;
-                var bigEndianNulls = 0;
-                for (var i = 0; i < pairs * 2; i += 2)
-                {
-                    if (data[i + 1] == 0)
-                    {
-                        littleEndianNulls++;
-                    }
-
-                    if (data[i] == 0)
-                    {
-                        bigEndianNulls++;
-                    }
-                }
-
-                var threshold = Math.Max(2, pairs / 4);
-                if (littleEndianNulls >= threshold && littleEndianNulls > bigEndianNulls * 2)
-                {
-                    return Encoding.Unicode;
-                }
-
-                if (bigEndianNulls >= threshold && bigEndianNulls > littleEndianNulls * 2)
-                {
-                    return Encoding.BigEndianUnicode;
-                }
+                yield return DecodeSample(data, length, Encoding.UTF8);
+                yield break;
             }
 
-            return new UTF8Encoding(false, false);
+            // Thunder may return UTF-16 subtitles without a BOM. Try the common
+            // single-byte/UTF-8 representation and both UTF-16 byte orders, then
+            // accept only a candidate that contains the expected subtitle syntax.
+            yield return DecodeSample(data, length, new UTF8Encoding(false, false));
+            yield return DecodeSample(data, length, Encoding.Unicode);
+            yield return DecodeSample(data, length, Encoding.BigEndianUnicode);
+        }
+
+        private static string DecodeSample(byte[] data, int length, Encoding encoding)
+        {
+            return encoding.GetString(data, 0, length)
+                .TrimStart('\uFEFF', ' ', '\r', '\n', '\t');
         }
     }
 }

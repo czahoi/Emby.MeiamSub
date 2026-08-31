@@ -23,6 +23,30 @@ public class SubtitleContentValidatorTests
         SubtitleContentValidator.Validate(data, "srt", "application/octet-stream");
     }
 
+    [Fact]
+    public void AcceptsUtf16LittleEndianSrtWithoutBomWithLongChineseCue()
+    {
+        var content = "1\r\n00:00:01,000 --> 00:00:20,000\r\n" + new string('中', 300) + "\r\n";
+        var data = Encoding.Unicode.GetBytes(content);
+
+        SubtitleContentValidator.Validate(data, "srt", "application/octet-stream");
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void AcceptsUtf16SrtInEitherByteOrder(bool bigEndian, bool withBom)
+    {
+        var encoding = new UnicodeEncoding(bigEndian, withBom);
+        var content = "1\r\n00:00:01,000 --> 00:00:02,000\r\n你好\r\n";
+        var body = encoding.GetBytes(content);
+        var data = withBom ? encoding.GetPreamble().Concat(body).ToArray() : body;
+
+        SubtitleContentValidator.Validate(data, "srt", "application/octet-stream");
+    }
+
     [Theory]
     [InlineData("<html><body>temporary error</body></html>", "application/octet-stream")]
     [InlineData("{\"error\":\"temporary error\"}", "application/json")]
@@ -44,5 +68,17 @@ public class SubtitleContentValidatorTests
             SubtitleContentValidator.Validate(data, "srt", "application/octet-stream"));
 
         Assert.Contains("Compressed", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("<html><!-- service unavailable --><body>Error</body></html>", "srt")]
+    [InlineData("{\"error\":\"download --> failed\"}", "srt")]
+    [InlineData("<html><body>Dialogue: download failed</body></html>", "ass")]
+    public void RejectsErrorDocumentsThatContainSubtitleMarkers(string content, string format)
+    {
+        var exception = Assert.Throws<InvalidDataException>(() =>
+            SubtitleContentValidator.Validate(Encoding.UTF8.GetBytes(content), format, "application/octet-stream"));
+
+        Assert.Contains("error document", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 }
